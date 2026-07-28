@@ -1,24 +1,84 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FiUser, FiSun, FiMoon, FiMonitor, FiLogOut } from "react-icons/fi";
+import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 
 type Theme = "light" | "dark" | "system";
 
 export default function AccountPage() {
-  const [name, setName] = useState("Nuha Nazmy");
-  const [email, setEmail] = useState("nuhanazmy562@example.com");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [theme, setTheme] = useState<Theme>("light");
+  const [error, setError] = useState("");
+  const router = useRouter();
+  const [supabase] = useState(() => createClient());
 
-  function handleSave() {
-    // TODO: wire this up to Supabase (update profiles table + auth) later
-    console.log("Saving profile:", { name, email, password, theme });
+  useEffect(() => {
+    async function loadProfile() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      const { data: profile, error: loadError } = await supabase
+        .from("profiles")
+        .select("name, email, theme")
+        .eq("id", user.id)
+        .single();
+
+      if (loadError) {
+        setError(loadError.message);
+        return;
+      }
+
+      if (profile) {
+        setName(profile.name ?? "");
+        setEmail(profile.email ?? "");
+        setTheme(profile.theme ?? "light");
+      }
+    }
+    loadProfile();
+  }, []);
+
+  async function handleSave() {
+    setError("");
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ name, theme })
+      .eq("id", user.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    if (password) {
+      const { error: pwError } = await supabase.auth.updateUser({ password });
+      if (pwError) {
+        setError(pwError.message);
+        return;
+      }
+      setPassword(""); // clear it so a second Save click doesn't resend the old password
+    }
+
+    if (email) {
+      const { error: emailError } = await supabase.auth.updateUser({ email });
+      if (emailError) {
+        setError(emailError.message);
+        return;
+      }
+    }
   }
 
-  function handleLogout() {
-    // TODO: wire this up to supabase.auth.signOut() later
-    console.log("Logging out");
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
   }
 
   const initials = name
@@ -103,6 +163,9 @@ export default function AccountPage() {
             ))}
           </div>
         </div>
+
+        {/* Error message */}
+        {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
 
         {/* Actions */}
         <div className="flex gap-2">

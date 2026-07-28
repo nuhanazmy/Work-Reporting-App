@@ -3,22 +3,43 @@
 import Link from "next/link";
 import { useState } from "react";
 import { FiEye, FiEyeOff } from "react-icons/fi";
+import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const [supabase] = useState(() => createClient());
 
   function handleClear() {
     setEmail("");
     setUsername("");
     setPassword("");
+    setError("");
   }
 
-  function handleSignup() {
-    // TODO: wire this up to Supabase auth once the database phase starts
-    console.log("Signup attempt:", { email, username, password });
+  async function handleSignup() {
+    setError("");
+    setLoading(true);
+
+    const { error: signupError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { username } }, // picked up by the trigger, no extra insert needed
+    });
+
+    if (signupError) {
+      setError(signupError.message);
+      setLoading(false);
+      return;
+    }
+
+    router.push("/login"); // or a "check your email" page, depending on your confirmation settings
   }
 
   return (
@@ -70,12 +91,22 @@ export default function SignupPage() {
           </div>
         </div>
 
+        {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
+
         <div className="flex gap-2">
-          <button onClick={handleClear} className="flex-1 border border-gray-300 rounded-md py-2 text-sm text-gray-700 hover:bg-gray-50">
+          <button
+            onClick={handleClear}
+            disabled={loading}
+            className="flex-1 border border-gray-300 rounded-md py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
             Clear
           </button>
-          <button onClick={handleSignup} className="flex-1 bg-green-700 text-white rounded-md py-2 text-sm font-medium hover:bg-green-800">
-            Sign up
+          <button
+            onClick={handleSignup}
+            disabled={loading}
+            className="flex-1 bg-green-700 text-white rounded-md py-2 text-sm font-medium hover:bg-green-800 disabled:opacity-50"
+          >
+            {loading ? "Signing up…" : "Sign up"}
           </button>
         </div>
 
