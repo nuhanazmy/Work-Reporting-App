@@ -3,19 +3,56 @@
 import Link from "next/link";
 import { useState } from "react";
 import { FiEye, FiEyeOff } from "react-icons/fi";
+import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const [supabase] = useState(() => createClient());
 
   function handleClear() {
     setIdentifier("");
     setPassword("");
+    setError("");
   }
 
-  function handleLogin() {
-    console.log("Login attempt:", { identifier, password });
+  async function handleLogin() {
+    setError("");
+    setLoading(true);
+
+    let loginEmail = identifier;
+
+    // if it's not an email, treat it as a username and resolve it first
+    if (!identifier.includes("@")) {
+      const { data: resolvedEmail, error: lookupError } = await supabase.rpc(
+        "get_email_by_username",
+        { uname: identifier }
+      );
+      if (lookupError || !resolvedEmail) {
+        setError("No account found with that username.");
+        setLoading(false);
+        return;
+      }
+      loginEmail = resolvedEmail;
+    }
+
+    const { error: loginError } = await supabase.auth.signInWithPassword({
+      email: loginEmail,
+      password,
+    });
+
+    if (loginError) {
+      setError(loginError.message);
+      setLoading(false);
+      return;
+    }
+
+    router.push("/day");
   }
 
   return (
@@ -57,12 +94,22 @@ export default function LoginPage() {
           </div>
         </div>
 
+        {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
+
         <div className="flex gap-2">
-          <button onClick={handleClear} className="flex-1 border border-gray-300 rounded-md py-2 text-sm text-gray-700 hover:bg-gray-50">
+          <button
+            onClick={handleClear}
+            disabled={loading}
+            className="flex-1 border border-gray-300 rounded-md py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
             Clear
           </button>
-          <button onClick={handleLogin} className="flex-1 bg-green-700 text-white rounded-md py-2 text-sm font-medium hover:bg-green-800">
-            Login
+          <button
+            onClick={handleLogin}
+            disabled={loading}
+            className="flex-1 bg-green-700 text-white rounded-md py-2 text-sm font-medium hover:bg-green-800 disabled:opacity-50"
+          >
+            {loading ? "Logging in…" : "Login"}
           </button>
         </div>
 
