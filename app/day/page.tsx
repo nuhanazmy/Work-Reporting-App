@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import TaskModal, { TaskFormData } from "@/components/TaskModal";
 import { FiPlus, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { createClient } from "@/lib/supabase/client";
+import { addDraft } from "@/lib/drafts";
 
 type TaskStatus = "pending" | "completed" | "follow_up" | "draft";
 type Task = { id: string; title: string; status: TaskStatus };
@@ -33,6 +34,7 @@ export default function DayTabPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<{ listKey: ListKey; task: Task } | null>(null);
   const [addTargetList, setAddTargetList] = useState<ListKey>("todo");
+  const [draftMessage, setDraftMessage] = useState("");
 
   const [todoTasks, setTodoTasks] = useState<Task[]>([]);
   const [doneTasks, setDoneTasks] = useState<Task[]>([]);
@@ -68,8 +70,16 @@ export default function DayTabPage() {
   }
 
   function handleSave(data: TaskFormData, saveMode: "active" | "draft") {
+    // Drafts are pulled out entirely — they live on the Drafts page, not in any Day tab column
+    if (saveMode === "draft") {
+      addDraft(data);
+      setDraftMessage("Saved as draft — find it on the Drafts page.");
+      setTimeout(() => setDraftMessage(""), 3000);
+      return;
+    }
+
     const isMarkedFollowUp = data.followUp !== "neither";
-    const status: TaskStatus = saveMode === "draft" ? "draft" : isMarkedFollowUp ? "follow_up" : "pending";
+    const status: TaskStatus = isMarkedFollowUp ? "follow_up" : "pending";
 
     if (editing) {
       listSetter(editing.listKey)((prev) =>
@@ -199,6 +209,7 @@ export default function DayTabPage() {
         <p className="text-sm text-gray-500 mb-6">{today}</p>
 
         {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
+        {draftMessage && <p className="text-xs text-amber-700 mb-4">{draftMessage}</p>}
 
         {loading ? (
           <p className="text-sm text-gray-400">Loading tasks…</p>
