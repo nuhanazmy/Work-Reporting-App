@@ -8,8 +8,25 @@ import TaskModal, { TaskFormData } from "@/components/TaskModal";
 import { FiPlus, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { createClient } from "@/lib/supabase/client";
 
-type Task = { id: string; title: string };
+type TaskStatus = "pending" | "completed" | "follow_up" | "draft";
+type Task = { id: string; title: string; status: TaskStatus };
 type ListKey = "todo" | "done" | "followup";
+
+function StatusBadge({ status }: { status: TaskStatus }) {
+  const styles: Record<TaskStatus, string> = {
+    pending: "bg-gray-100 text-gray-600",
+    completed: "bg-green-50 text-green-700",
+    follow_up: "bg-blue-50 text-blue-700",
+    draft: "bg-amber-50 text-amber-700",
+  };
+  const labels: Record<TaskStatus, string> = {
+    pending: "Pending",
+    completed: "Completed",
+    follow_up: "Follow-up",
+    draft: "Draft",
+  };
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded ${styles[status]}`}>{labels[status]}</span>;
+}
 
 export default function DayTabPage() {
   const [tab, setTab] = useState<"day" | "week">("day");
@@ -50,23 +67,27 @@ export default function DayTabPage() {
     return setFollowUps;
   }
 
-  function handleSave(data: TaskFormData) {
+  function handleSave(data: TaskFormData, saveMode: "active" | "draft") {
     const isMarkedFollowUp = data.followUp !== "neither";
+    const status: TaskStatus = saveMode === "draft" ? "draft" : isMarkedFollowUp ? "follow_up" : "pending";
 
     if (editing) {
       listSetter(editing.listKey)((prev) =>
-        prev.map((t) => (t.id === editing.task.id ? { ...t, title: data.task || t.title } : t))
+        prev.map((t) => (t.id === editing.task.id ? { ...t, title: data.task || t.title, status } : t))
       );
 
       if (isMarkedFollowUp && editing.listKey !== "followup") {
-        setFollowUps((prev) => [...prev, { ...editing.task, title: data.task || editing.task.title }]);
+        setFollowUps((prev) => [
+          ...prev,
+          { ...editing.task, title: data.task || editing.task.title, status: "follow_up" },
+        ]);
       }
     } else {
-      const newTask: Task = { id: crypto.randomUUID(), title: data.task || "Untitled task" };
+      const newTask: Task = { id: crypto.randomUUID(), title: data.task || "Untitled task", status };
       listSetter(addTargetList)((prev) => [...prev, newTask]);
 
       if (isMarkedFollowUp && addTargetList !== "followup") {
-        setFollowUps((prev) => [...prev, { ...newTask, id: crypto.randomUUID() }]);
+        setFollowUps((prev) => [...prev, { ...newTask, id: crypto.randomUUID(), status: "follow_up" }]);
       }
     }
   }
@@ -80,17 +101,18 @@ export default function DayTabPage() {
     if (!editing) return;
     listSetter(editing.listKey)((prev) => prev.filter((t) => t.id !== editing.task.id));
     if (editing.listKey !== "done") {
-      setDoneTasks((prev) => [...prev, editing.task]);
+      setDoneTasks((prev) => [...prev, { ...editing.task, status: "completed" }]);
     }
   }
 
   function TaskCard({ task, listKey }: { task: Task; listKey: ListKey }) {
     return (
       <div className="group relative text-sm text-gray-700 border border-gray-100 rounded-md px-3 py-2 bg-gray-50 hover:bg-gray-100 cursor-pointer">
-        <button onClick={() => openEditModal(listKey, task)} className="w-full text-left pr-12">
-          {task.title}
+        <button onClick={() => openEditModal(listKey, task)} className="w-full text-left pr-12 flex items-center gap-2">
+          <span className="flex-1 truncate">{task.title}</span>
+          <StatusBadge status={task.status} />
         </button>
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-50">
           <button
             onClick={() => openEditModal(listKey, task)}
             className="p-1 rounded hover:bg-gray-200 text-gray-500"
@@ -138,9 +160,15 @@ export default function DayTabPage() {
       }
 
       if (tasks) {
-        setTodoTasks(tasks.filter((t) => t.status === "pending").map((t) => ({ id: t.id, title: t.task })));
-        setDoneTasks(tasks.filter((t) => t.status === "completed").map((t) => ({ id: t.id, title: t.task })));
-        setFollowUps(tasks.filter((t) => t.is_follow_up).map((t) => ({ id: t.id, title: t.task })));
+        setTodoTasks(
+          tasks.filter((t) => t.status === "pending").map((t) => ({ id: t.id, title: t.task, status: "pending" as TaskStatus }))
+        );
+        setDoneTasks(
+          tasks.filter((t) => t.status === "completed").map((t) => ({ id: t.id, title: t.task, status: "completed" as TaskStatus }))
+        );
+        setFollowUps(
+          tasks.filter((t) => t.is_follow_up).map((t) => ({ id: t.id, title: t.task, status: "follow_up" as TaskStatus }))
+        );
       }
 
       setLoading(false);

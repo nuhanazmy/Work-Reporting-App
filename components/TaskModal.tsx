@@ -41,7 +41,7 @@ export default function TaskModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSave: (data: TaskFormData) => void;
+  onSave: (data: TaskFormData, saveMode: "active" | "draft") => void;
   onDelete?: () => void;
   onComplete?: () => void;
   initialData?: TaskFormData;
@@ -50,13 +50,14 @@ export default function TaskModal({
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const [categories, setCategories] = useState(categoryOptions);
+  const [error, setError] = useState("");
 
   const isEditing = !!initialData;
 
-  // Pre-fill the form whenever we open in edit mode, reset when opening fresh
   useEffect(() => {
     if (open) {
       setForm(initialData ?? emptyForm);
+      setError("");
     }
   }, [open, initialData]);
 
@@ -76,7 +77,17 @@ export default function TaskModal({
   }
 
   function handleSave() {
-    onSave(form);
+    if (!form.task.trim()) {
+      setError("Task name is required before saving.");
+      return;
+    }
+    setError("");
+    onSave(form, "active");
+    onClose();
+  }
+
+  function handleSaveDraft() {
+    onSave(form, "draft");
     onClose();
   }
 
@@ -218,8 +229,9 @@ export default function TaskModal({
                 key={q.value}
                 type="button"
                 onClick={() => update("followUp", q.value)}
-                className={`text-xs text-center py-2 rounded-md border ${q.classes} ${form.followUp === q.value ? "ring-2 ring-offset-1 ring-gray-400" : ""
-                  }`}
+                className={`text-xs text-center py-2 rounded-md border ${q.classes} ${
+                  form.followUp === q.value ? "ring-2 ring-offset-1 ring-gray-400" : ""
+                }`}
               >
                 {q.label}
               </button>
@@ -246,6 +258,8 @@ export default function TaskModal({
           )}
         </div>
 
+        {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+
         {/* Actions — differ depending on add vs edit */}
         <div className="flex justify-end gap-2 flex-wrap">
           {isEditing ? (
@@ -264,6 +278,9 @@ export default function TaskModal({
             <>
               <button onClick={onClose} className="text-sm px-3 py-1.5 border border-gray-300 rounded-md text-gray-600">
                 Cancel
+              </button>
+              <button onClick={handleSaveDraft} className="text-sm px-3 py-1.5 border border-amber-300 text-amber-700 rounded-md hover:bg-amber-50">
+                Save as draft
               </button>
               <button onClick={handleSave} className="text-sm px-3 py-1.5 bg-green-700 text-white rounded-md hover:bg-green-800">
                 Add to list
