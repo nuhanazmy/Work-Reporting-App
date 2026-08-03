@@ -8,6 +8,7 @@ import TaskModal, { TaskFormData } from "@/components/TaskModal";
 import { FiPlus, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { createClient } from "@/lib/supabase/client";
 import { addDraft } from "@/lib/drafts";
+import { moveToTrash } from "@/lib/trash";
 
 type TaskStatus = "pending" | "completed" | "follow_up" | "draft";
 type Task = { id: string; title: string; status: TaskStatus };
@@ -70,7 +71,6 @@ export default function DayTabPage() {
   }
 
   function handleSave(data: TaskFormData, saveMode: "active" | "draft") {
-    // Drafts are pulled out entirely — they live on the Drafts page, not in any Day tab column
     if (saveMode === "draft") {
       addDraft(data);
       setDraftMessage("Saved as draft — find it on the Drafts page.");
@@ -102,8 +102,10 @@ export default function DayTabPage() {
     }
   }
 
+  // Delete from inside the modal — moves to Trash instead of erasing
   function handleDelete() {
     if (!editing) return;
+    moveToTrash(editing.task.title, editing.listKey);
     listSetter(editing.listKey)((prev) => prev.filter((t) => t.id !== editing.task.id));
   }
 
@@ -131,7 +133,11 @@ export default function DayTabPage() {
             <FiEdit2 size={13} />
           </button>
           <button
-            onClick={() => listSetter(listKey)((prev) => prev.filter((t) => t.id !== task.id))}
+            onClick={() => {
+              // Hover delete icon — also moves to Trash instead of erasing
+              moveToTrash(task.title, listKey);
+              listSetter(listKey)((prev) => prev.filter((t) => t.id !== task.id));
+            }}
             className="p-1 rounded hover:bg-red-100 text-red-500"
             aria-label="Delete task"
           >

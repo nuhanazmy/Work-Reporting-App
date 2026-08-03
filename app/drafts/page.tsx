@@ -87,7 +87,6 @@ export default function DraftsPage() {
         onClose={() => setModalOpen(false)}
         onSave={handleModalSave}
         initialData={editingDraft?.data}
-        forceAddButtons
       />
     </div>
   );
