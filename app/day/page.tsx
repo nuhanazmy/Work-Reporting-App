@@ -9,6 +9,7 @@ import { FiPlus, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { createClient } from "@/lib/supabase/client";
 import { addDraft } from "@/lib/drafts";
 import { moveToTrash } from "@/lib/trash";
+import { getAndClearRestoredTasks } from "@/lib/trash";
 
 type TaskStatus = "pending" | "completed" | "follow_up" | "draft";
 type Task = { id: string; title: string; status: TaskStatus };
@@ -186,6 +187,15 @@ export default function DayTabPage() {
           tasks.filter((t) => t.is_follow_up).map((t) => ({ id: t.id, title: t.task, status: "follow_up" as TaskStatus }))
         );
       }
+      // Pull in anything just restored from Trash
+      const restored = getAndClearRestoredTasks();
+      if (restored.length > 0) {
+        const statusFor = { todo: "pending", done: "completed", followup: "follow_up" } as const;
+        restored.forEach((r) => {
+          const restoredTask: Task = { id: crypto.randomUUID(), title: r.title, status: statusFor[r.originalList] };
+          listSetter(r.originalList)((prev) => [...prev, restoredTask]);
+        });
+      }
 
       setLoading(false);
     }
@@ -201,9 +211,8 @@ export default function DayTabPage() {
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setTab("day")}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium ${
-              tab === "day" ? "bg-green-50 text-green-700" : "text-gray-500 border border-gray-300"
-            }`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium ${tab === "day" ? "bg-green-50 text-green-700" : "text-gray-500 border border-gray-300"
+              }`}
           >
             Day
           </button>
@@ -288,16 +297,16 @@ export default function DayTabPage() {
         initialData={
           editing
             ? {
-                tppi: "",
-                category: "",
-                task: editing.task.title,
-                output: "",
-                code: "",
-                link: "",
-                collaborators: "",
-                timeTaken: "",
-                followUp: "neither",
-              }
+              tppi: "",
+              category: "",
+              task: editing.task.title,
+              output: "",
+              code: "",
+              link: "",
+              collaborators: "",
+              timeTaken: "",
+              followUp: "neither",
+            }
             : undefined
         }
       />

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
-import { getTrash, removeFromTrashPermanently, daysRemaining, TrashedTask } from "@/lib/trash";
+import { getTrash, removeFromTrashPermanently, restoreTask, daysRemaining, TrashedTask } from "@/lib/trash";
 import { FiRotateCcw, FiTrash2 } from "react-icons/fi";
 
 export default function TrashPage() {
@@ -21,7 +21,7 @@ export default function TrashPage() {
     // Real restoration (putting it back into the actual Day tab list) will
     // happen once this is wired to Supabase. For now, this just removes it
     // from Trash and confirms the action.
-    removeFromTrashPermanently(item.id);
+    restoreTask(item);
     refresh();
   }
 

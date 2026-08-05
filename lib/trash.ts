@@ -9,6 +9,22 @@ export type TrashedTask = {
 
 const KEY = "trashed_tasks";
 const RETENTION_DAYS = 30;
+const RESTORE_KEY = "restored_tasks";
+
+export function restoreTask(item: TrashedTask) {
+  const raw = localStorage.getItem(RESTORE_KEY);
+  const existing: TrashedTask[] = raw ? JSON.parse(raw) : [];
+  localStorage.setItem(RESTORE_KEY, JSON.stringify([...existing, item]));
+  removeFromTrashPermanently(item.id);
+}
+
+export function getAndClearRestoredTasks(): TrashedTask[] {
+  if (typeof window === "undefined") return [];
+  const raw = localStorage.getItem(RESTORE_KEY);
+  const items: TrashedTask[] = raw ? JSON.parse(raw) : [];
+  localStorage.removeItem(RESTORE_KEY);
+  return items;
+}
 
 export function getTrash(): TrashedTask[] {
   if (typeof window === "undefined") return [];

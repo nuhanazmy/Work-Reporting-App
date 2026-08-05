@@ -33,6 +33,7 @@ export default function WeekTabPage() {
   const [name, setName] = useState("");
   const [weekStart, setWeekStart] = useState("");
   const [weekEnd, setWeekEnd] = useState("");
+  const [comingSoonMsg, setComingSoonMsg] = useState("");
 
   const [plannedThisWeek, setPlannedThisWeek] = useState<PlannedTask[]>([
     { id: newId(), task: "", code: "", collaborators: "", importance: "", urgency: "", estTime: "", progress: "", weeks: "" },
@@ -357,6 +358,7 @@ export default function WeekTabPage() {
         </div>
 
         {/* Actions */}
+        {comingSoonMsg && <p className="text-xs text-amber-700 text-right mb-2">{comingSoonMsg}</p>}
         <div className="flex flex-wrap gap-2 justify-end pb-10">
           <button className="text-sm px-3 py-1.5 border border-red-300 text-red-600 rounded-md hover:bg-red-50">
             Delete
@@ -364,7 +366,13 @@ export default function WeekTabPage() {
           <button className="text-sm px-3 py-1.5 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 flex items-center gap-1">
             <FiEye size={14} /> Preview
           </button>
-          <button className="text-sm px-3 py-1.5 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+          <button
+            onClick={() => {
+              setComingSoonMsg("PDF/Excel export is coming soon.");
+              setTimeout(() => setComingSoonMsg(""), 3000);
+            }}
+            className="text-sm px-3 py-1.5 border border-gray-300 rounded-md text-gray-500 hover:bg-gray-50 flex items-center gap-1"
+          >
             <FiDownload size={14} /> Download (PDF / DOCX)
           </button>
           <button className="text-sm px-3 py-1.5 bg-green-700 text-white rounded-md hover:bg-green-800 flex items-center gap-1">
