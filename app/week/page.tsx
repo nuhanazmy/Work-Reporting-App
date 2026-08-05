@@ -352,6 +352,7 @@ export default function WeekTabPage() {
           <textarea
             value={supervisorFeedback}
             onChange={(e) => setSupervisorFeedback(e.target.value)}
+            
             rows={3}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
           />
