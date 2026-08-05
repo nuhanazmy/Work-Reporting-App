@@ -59,11 +59,10 @@ export default function Sidebar() {
                 <Link
                   href={item.href}
                   onClick={() => setOpen(false)}
-                  className={`block px-3 py-2 rounded-md text-sm ${
-                    active
+                  className={`block px-3 py-2 rounded-md text-sm ${active
                       ? "bg-green-50 text-green-700 font-medium"
                       : "text-gray-600 hover:bg-gray-100"
-                  }`}
+                    }`}
                 >
                   {item.label}
                 </Link>
@@ -73,7 +72,10 @@ export default function Sidebar() {
         </ul>
 
         <button
-          onClick={() => console.log("Logout")}
+          onClick={() => {
+            // TODO(backend): call supabase.auth.signOut(), then router.push("/login")
+            console.log("Logout");
+          }}
           className="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-red-600 hover:bg-red-50"
         >
           <FiLogOut size={14} />

@@ -42,7 +42,14 @@ export default function AccountPage() {
     }
     loadProfile();
   }, []);
-
+// TODO(backend): this currently only updates local React state.
+// Needs to also:
+// - INSERT a new row into `daily_tasks` when adding (not editing)
+// - UPDATE the matching row when editing
+// - map `data.followUp` to the `importance`/`urgency` columns (1-5 scale) and set is_follow_up
+// - the Postgres trigger `handle_follow_up_task` (see schema.sql) auto-creates tomorrow's
+//   task server-side once is_follow_up is set true — so the client-side "copy into followUps"
+//   logic below can likely be REMOVED once this is wired up, to avoid duplicating that task
   async function handleSave() {
     setError("");
     const { data: { user } } = await supabase.auth.getUser();
@@ -74,11 +81,13 @@ export default function AccountPage() {
         return;
       }
     }
+    console.log("Saving profile:", { name, email, password, theme });
   }
 
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push("/login");
+    console.log("Logging out");
   }
 
   const initials = name
@@ -151,11 +160,10 @@ export default function AccountPage() {
                 key={opt.value}
                 type="button"
                 onClick={() => setTheme(opt.value)}
-                className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-md text-xs border ${
-                  theme === opt.value
+                className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-md text-xs border ${theme === opt.value
                     ? "bg-green-50 border-green-600 text-green-700"
                     : "border-gray-300 text-gray-600 hover:bg-gray-50"
-                }`}
+                  }`}
               >
                 {opt.icon}
                 {opt.label}

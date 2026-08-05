@@ -40,6 +40,7 @@ export default function SignupPage() {
     }
 
     router.push("/login"); // or a "check your email" page, depending on your confirmation settings
+    console.log("Signup attempt:", { email, username, password });
   }
 
   return (

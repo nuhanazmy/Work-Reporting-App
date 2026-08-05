@@ -53,6 +53,7 @@ export default function LoginPage() {
     }
 
     router.push("/day");
+    console.log("Login attempt:", { identifier, password });
   }
 
   return (
