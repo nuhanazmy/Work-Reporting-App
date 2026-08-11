@@ -38,6 +38,7 @@ export default function TaskModal({
   onDelete,
   onComplete,
   initialData,
+  forceAddButtons,
 }: {
   open: boolean;
   onClose: () => void;
@@ -45,6 +46,7 @@ export default function TaskModal({
   onDelete?: () => void;
   onComplete?: () => void;
   initialData?: TaskFormData;
+  forceAddButtons?: boolean;
 }) {
   const [form, setForm] = useState<TaskFormData>(emptyForm);
   const [addingCategory, setAddingCategory] = useState(false);
@@ -52,7 +54,7 @@ export default function TaskModal({
   const [categories, setCategories] = useState(categoryOptions);
   const [error, setError] = useState("");
 
-  const isEditing = !!initialData;
+  const isEditing = !!initialData && !forceAddButtons;
 
   useEffect(() => {
     if (open) {

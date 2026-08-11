@@ -1,45 +1,115 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import TaskModal, { TaskFormData } from "@/components/TaskModal";
-import { getDrafts, removeDraft, addDraft, DraftTask } from "@/lib/drafts";
+import { createClient } from "@/lib/supabase/client";
 import { FiEdit2, FiTrash2 } from "react-icons/fi";
 
+type DraftRow = {
+  id: string;
+  task: string;
+  tppi: string | null;
+  category: string | null;
+  output: string | null;
+  short_code: string | null;
+  link: string | null;
+  collaborators: string[] | null;
+  time_taken: string | null;
+  created_at: string;
+};
+
 export default function DraftsPage() {
-  const [drafts, setDrafts] = useState<DraftTask[]>([]);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingDraft, setEditingDraft] = useState<DraftTask | null>(null);
+  const [editingDraft, setEditingDraft] = useState<DraftRow | null>(null);
+
+  const router = useRouter();
+  const [supabase] = useState(() => createClient());
+
+  const loadDrafts = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const { data, error: fetchError } = await supabase
+      .from("daily_tasks")
+      .select("id, task, tppi, category, output, short_code, link, collaborators, time_taken, created_at")
+      .eq("user_id", user.id)
+      .eq("status", "draft")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+
+    if (fetchError) {
+      setError(fetchError.message);
+      setLoading(false);
+      return;
+    }
+
+    setDrafts(data ?? []);
+    setLoading(false);
+  }, [supabase, router]);
 
   useEffect(() => {
-    setDrafts(getDrafts());
-  }, []);
+    loadDrafts();
+  }, [loadDrafts]);
 
-  function refresh() {
-    setDrafts(getDrafts());
-  }
-
-  function handleContinue(draft: DraftTask) {
+  function handleContinue(draft: DraftRow) {
     setEditingDraft(draft);
     setModalOpen(true);
   }
 
-  function handleDelete(id: string) {
-    removeDraft(id);
-    refresh();
+  async function handleDelete(id: string) {
+    const { error: deleteError } = await supabase
+      .from("daily_tasks")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+    await loadDrafts();
   }
 
-  function handleModalSave(data: TaskFormData, saveMode: "active" | "draft") {
-    if (editingDraft) removeDraft(editingDraft.id);
+  async function handleModalSave(data: TaskFormData, saveMode: "active" | "draft") {
+    if (!editingDraft) return;
 
-    if (saveMode === "draft") {
-      addDraft(data);
+    const status = saveMode === "draft" ? "draft" : "pending";
+
+    const { error: updateError } = await supabase
+      .from("daily_tasks")
+      .update({
+        tppi: data.tppi || null,
+        category: data.category || null,
+        task: data.task,
+        output: data.output || null,
+        short_code: data.code || null,
+        link: data.link || null,
+        collaborators: data.collaborators ? data.collaborators.split(",").map((c) => c.trim()) : null,
+        time_taken: data.timeTaken.includes(":") && data.timeTaken !== ":" ? `${data.timeTaken}:00` : null,
+        status,
+        // Moving out of draft means it should count as today's task now
+        task_date: status === "pending" ? new Date().toISOString().slice(0, 10) : undefined,
+      })
+      .eq("id", editingDraft.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
     }
-    // "active" (Add to list) here just clears the draft for now — real
-    // insertion into the Day tab happens once this connects to Supabase.
 
     setEditingDraft(null);
-    refresh();
+    setModalOpen(false);
+    await loadDrafts();
   }
 
   return (
@@ -49,7 +119,11 @@ export default function DraftsPage() {
       <main className="flex-1 p-6 pt-20 md:pt-6">
         <h1 className="text-lg font-semibold mb-4">Drafts</h1>
 
-        {drafts.length === 0 ? (
+        {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
+
+        {loading ? (
+          <p className="text-sm text-gray-400">Loading drafts…</p>
+        ) : drafts.length === 0 ? (
           <div className="border border-gray-200 rounded-lg p-8 text-center max-w-sm">
             <p className="text-sm font-medium text-gray-700 mb-1">No drafts saved</p>
             <p className="text-xs text-gray-400">Tasks you save as draft from the Day tab appear here</p>
@@ -59,8 +133,8 @@ export default function DraftsPage() {
             {drafts.map((d) => (
               <div key={d.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
                 <div>
-                  <p className="text-sm text-gray-800">{d.data.task || "Untitled draft"}</p>
-                  <p className="text-xs text-gray-400">Saved {new Date(d.savedAt).toLocaleString()}</p>
+                  <p className="text-sm text-gray-800">{d.task || "Untitled draft"}</p>
+                  <p className="text-xs text-gray-400">Saved {new Date(d.created_at).toLocaleString()}</p>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -86,7 +160,22 @@ export default function DraftsPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSave={handleModalSave}
-        initialData={editingDraft?.data}
+        initialData={
+          editingDraft
+            ? {
+              tppi: editingDraft.tppi || "",
+              category: editingDraft.category || "",
+              task: editingDraft.task,
+              output: editingDraft.output || "",
+              code: editingDraft.short_code || "",
+              link: editingDraft.link || "",
+              collaborators: editingDraft.collaborators?.join(", ") || "",
+              timeTaken: editingDraft.time_taken?.slice(0, 5) || "",
+              followUp: "neither",
+            }
+            : undefined
+        }
+        forceAddButtons
       />
     </div>
   );
