@@ -1,18 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import TaskModal, { TaskFormData } from "@/components/TaskModal";
 import { FiPlus, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { createClient } from "@/lib/supabase/client";
-import { addDraft } from "@/lib/drafts";
-import { moveToTrash } from "@/lib/trash";
-import { getAndClearRestoredTasks } from "@/lib/trash";
 
 type TaskStatus = "pending" | "completed" | "follow_up" | "draft";
-type Task = { id: string; title: string; status: TaskStatus };
+type Task = {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  raw: {
+    tppi: string | null;
+    category: string | null;
+    output: string | null;
+    short_code: string | null;
+    link: string | null;
+    collaborators: string[] | null;
+    time_taken: string | null;
+    importance: number | null;
+    urgency: number | null;
+  };
+};
 type ListKey = "todo" | "done" | "followup";
 
 function StatusBadge({ status }: { status: TaskStatus }) {
@@ -31,12 +43,33 @@ function StatusBadge({ status }: { status: TaskStatus }) {
   return <span className={`text-[10px] px-1.5 py-0.5 rounded ${styles[status]}`}>{labels[status]}</span>;
 }
 
+// Turns the follow-up quadrant picker into a 1-5 importance/urgency pair
+function quadrantToScores(followUp: TaskFormData["followUp"]): { importance: number; urgency: number } {
+  switch (followUp) {
+    case "urgent_important": return { importance: 5, urgency: 5 };
+    case "important": return { importance: 5, urgency: 1 };
+    case "urgent": return { importance: 1, urgency: 5 };
+    default: return { importance: 1, urgency: 1 };
+  }
+}
+
+function todayStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function tomorrowStr() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function DayTabPage() {
   const [tab, setTab] = useState<"day" | "week">("day");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<{ listKey: ListKey; task: Task } | null>(null);
   const [addTargetList, setAddTargetList] = useState<ListKey>("todo");
-  const [draftMessage, setDraftMessage] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const [todoTasks, setTodoTasks] = useState<Task[]>([]);
   const [doneTasks, setDoneTasks] = useState<Task[]>([]);
@@ -48,11 +81,55 @@ export default function DayTabPage() {
   const [supabase] = useState(() => createClient());
 
   const today = new Date().toLocaleDateString("en-US", {
-    weekday: "short",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
+    weekday: "short", day: "numeric", month: "long", year: "numeric",
   });
+
+  const loadTasks = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const { data: tasks, error: fetchError } = await supabase
+      .from("daily_tasks")
+      .select("id, task, status, is_follow_up, tppi, category, output, short_code, link, collaborators, time_taken, importance, urgency")
+      .eq("user_id", user.id)
+      .eq("task_date", todayStr())
+      .is("deleted_at", null);
+
+    if (fetchError) {
+      setError(fetchError.message);
+      setLoading(false);
+      return;
+    }
+
+    const mapRow = (t: any): Task => ({
+      id: t.id,
+      title: t.task,
+      status: t.status,
+      raw: {
+        tppi: t.tppi, category: t.category, output: t.output,
+        short_code: t.short_code, link: t.link, collaborators: t.collaborators,
+        time_taken: t.time_taken, importance: t.importance, urgency: t.urgency,
+      },
+    });
+
+    if (tasks) {
+      setTodoTasks(tasks.filter((t) => t.status === "pending" && !t.is_follow_up).map(mapRow));
+      setDoneTasks(tasks.filter((t) => t.status === "completed").map(mapRow));
+      setFollowUps(tasks.filter((t) => t.is_follow_up).map(mapRow));
+    }
+
+    setLoading(false);
+  }, [supabase, router]);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
 
   function openAddModal(listKey: ListKey) {
     setEditing(null);
@@ -65,57 +142,129 @@ export default function DayTabPage() {
     setModalOpen(true);
   }
 
-  function listSetter(listKey: ListKey) {
-    if (listKey === "todo") return setTodoTasks;
-    if (listKey === "done") return setDoneTasks;
-    return setFollowUps;
-  }
+  async function handleSave(data: TaskFormData, saveMode: "active" | "draft") {
+    setSaving(true);
+    setError("");
 
-  function handleSave(data: TaskFormData, saveMode: "active" | "draft") {
-    if (saveMode === "draft") {
-      addDraft(data);
-      setDraftMessage("Saved as draft — find it on the Drafts page.");
-      setTimeout(() => setDraftMessage(""), 3000);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.push("/login");
       return;
     }
 
     const isMarkedFollowUp = data.followUp !== "neither";
-    const status: TaskStatus = isMarkedFollowUp ? "follow_up" : "pending";
+    const { importance, urgency } = quadrantToScores(data.followUp);
+    const status: TaskStatus = saveMode === "draft" ? "draft" : "pending";
+
+    const timeTaken = data.timeTaken.includes(":") && data.timeTaken !== ":"
+      ? `${data.timeTaken}:00`
+      : null;
+
+    const payload = {
+      user_id: user.id,
+      tppi: data.tppi || null,
+      category: data.category || null,
+      task: data.task,
+      output: data.output || null,
+      short_code: data.code || null,
+      link: data.link || null,
+      collaborators: data.collaborators ? data.collaborators.split(",").map((c) => c.trim()) : null,
+      time_taken: timeTaken,
+      status,
+      importance,
+      urgency,
+      is_follow_up: false, // this row itself; the carried-over copy (if any) is inserted separately below
+    };
 
     if (editing) {
-      listSetter(editing.listKey)((prev) =>
-        prev.map((t) => (t.id === editing.task.id ? { ...t, title: data.task || t.title, status } : t))
-      );
+      const { error: updateError } = await supabase
+        .from("daily_tasks")
+        .update(payload)
+        .eq("id", editing.task.id);
 
-      if (isMarkedFollowUp && editing.listKey !== "followup") {
-        setFollowUps((prev) => [
-          ...prev,
-          { ...editing.task, title: data.task || editing.task.title, status: "follow_up" },
-        ]);
+      if (updateError) {
+        setError(updateError.message);
+        setSaving(false);
+        return;
       }
     } else {
-      const newTask: Task = { id: crypto.randomUUID(), title: data.task || "Untitled task", status };
-      listSetter(addTargetList)((prev) => [...prev, newTask]);
+      const { data: inserted, error: insertError } = await supabase
+        .from("daily_tasks")
+        .insert({ ...payload, task_date: todayStr() })
+        .select("id")
+        .single();
 
-      if (isMarkedFollowUp && addTargetList !== "followup") {
-        setFollowUps((prev) => [...prev, { ...newTask, id: crypto.randomUUID(), status: "follow_up" }]);
+      if (insertError) {
+        setError(insertError.message);
+        setSaving(false);
+        return;
+      }
+
+      // If marked as follow-up, create tomorrow's carried-over task explicitly
+      if (isMarkedFollowUp && saveMode === "active") {
+        await supabase.from("daily_tasks").insert({
+          user_id: user.id,
+          task_date: tomorrowStr(),
+          tppi: data.tppi || null,
+          category: data.category || null,
+          task: data.task,
+          status: "pending",
+          importance,
+          urgency,
+          is_follow_up: true,
+          source_task_id: inserted?.id ?? null,
+        });
       }
     }
+
+    setSaving(false);
+    setModalOpen(false);
+    await loadTasks();
   }
 
-  // Delete from inside the modal — moves to Trash instead of erasing
-  function handleDelete() {
+  async function handleDelete() {
     if (!editing) return;
-    moveToTrash(editing.task.title, editing.listKey);
-    listSetter(editing.listKey)((prev) => prev.filter((t) => t.id !== editing.task.id));
-  }
+    setSaving(true);
+    const { error: deleteError } = await supabase
+      .from("daily_tasks")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", editing.task.id);
 
-  function handleComplete() {
-    if (!editing) return;
-    listSetter(editing.listKey)((prev) => prev.filter((t) => t.id !== editing.task.id));
-    if (editing.listKey !== "done") {
-      setDoneTasks((prev) => [...prev, { ...editing.task, status: "completed" }]);
+    if (deleteError) {
+      setError(deleteError.message);
     }
+    setSaving(false);
+    setModalOpen(false);
+    await loadTasks();
+  }
+
+  async function handleComplete() {
+    if (!editing) return;
+    setSaving(true);
+    const { error: completeError } = await supabase
+      .from("daily_tasks")
+      .update({ status: "completed" })
+      .eq("id", editing.task.id);
+
+    if (completeError) {
+      setError(completeError.message);
+    }
+    setSaving(false);
+    setModalOpen(false);
+    await loadTasks();
+  }
+
+  async function handleQuickDelete(taskId: string) {
+    const { error: deleteError } = await supabase
+      .from("daily_tasks")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", taskId);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+    await loadTasks();
   }
 
   function TaskCard({ task, listKey }: { task: Task; listKey: ListKey }) {
@@ -134,11 +283,7 @@ export default function DayTabPage() {
             <FiEdit2 size={13} />
           </button>
           <button
-            onClick={() => {
-              // Hover delete icon — also moves to Trash instead of erasing
-              moveToTrash(task.title, listKey);
-              listSetter(listKey)((prev) => prev.filter((t) => t.id !== task.id));
-            }}
+            onClick={() => handleQuickDelete(task.id)}
             className="p-1 rounded hover:bg-red-100 text-red-500"
             aria-label="Delete task"
           >
@@ -149,60 +294,6 @@ export default function DayTabPage() {
     );
   }
 
-  useEffect(() => {
-    async function loadTasks() {
-      setLoading(true);
-      setError("");
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push("/login");
-        return;
-      }
-
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-
-      const { data: tasks, error: fetchError } = await supabase
-        .from("daily_tasks")
-        .select("id, task, status, is_follow_up")
-        .eq("user_id", user.id)
-        .eq("task_date", todayStr)
-        .is("deleted_at", null);
-
-      if (fetchError) {
-        setError(fetchError.message);
-        setLoading(false);
-        return;
-      }
-
-      if (tasks) {
-        setTodoTasks(
-          tasks.filter((t) => t.status === "pending").map((t) => ({ id: t.id, title: t.task, status: "pending" as TaskStatus }))
-        );
-        setDoneTasks(
-          tasks.filter((t) => t.status === "completed").map((t) => ({ id: t.id, title: t.task, status: "completed" as TaskStatus }))
-        );
-        setFollowUps(
-          tasks.filter((t) => t.is_follow_up).map((t) => ({ id: t.id, title: t.task, status: "follow_up" as TaskStatus }))
-        );
-      }
-      // Pull in anything just restored from Trash
-      const restored = getAndClearRestoredTasks();
-      if (restored.length > 0) {
-        const statusFor = { todo: "pending", done: "completed", followup: "follow_up" } as const;
-        restored.forEach((r) => {
-          const restoredTask: Task = { id: crypto.randomUUID(), title: r.title, status: statusFor[r.originalList] };
-          listSetter(r.originalList)((prev) => [...prev, restoredTask]);
-        });
-      }
-
-      setLoading(false);
-    }
-
-    loadTasks();
-  }, []);
-
   return (
     <div className="flex min-h-screen bg-white">
       <Sidebar />
@@ -211,8 +302,9 @@ export default function DayTabPage() {
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setTab("day")}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium ${tab === "day" ? "bg-green-50 text-green-700" : "text-gray-500 border border-gray-300"
-              }`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium ${
+              tab === "day" ? "bg-green-50 text-green-700" : "text-gray-500 border border-gray-300"
+            }`}
           >
             Day
           </button>
@@ -224,14 +316,12 @@ export default function DayTabPage() {
         <p className="text-sm text-gray-500 mb-6">{today}</p>
 
         {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
-        {draftMessage && <p className="text-xs text-amber-700 mb-4">{draftMessage}</p>}
 
         {loading ? (
           <p className="text-sm text-gray-400">Loading tasks…</p>
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {/* To-do list */}
               <div className="border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-gray-800">To-do list</h2>
@@ -251,7 +341,6 @@ export default function DayTabPage() {
                 </div>
               </div>
 
-              {/* Task done today */}
               <div className="border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-gray-800">Task done today</h2>
@@ -273,7 +362,6 @@ export default function DayTabPage() {
               </div>
             </div>
 
-            {/* Follow up from yesterday */}
             <div className="border border-blue-200 rounded-lg p-4">
               <h2 className="text-sm font-semibold text-blue-700 mb-3">Follow up from yesterday</h2>
               <div className="space-y-2">
@@ -297,16 +385,16 @@ export default function DayTabPage() {
         initialData={
           editing
             ? {
-              tppi: "",
-              category: "",
-              task: editing.task.title,
-              output: "",
-              code: "",
-              link: "",
-              collaborators: "",
-              timeTaken: "",
-              followUp: "neither",
-            }
+                tppi: editing.task.raw.tppi || "",
+                category: editing.task.raw.category || "",
+                task: editing.task.title,
+                output: editing.task.raw.output || "",
+                code: editing.task.raw.short_code || "",
+                link: editing.task.raw.link || "",
+                collaborators: editing.task.raw.collaborators?.join(", ") || "",
+                timeTaken: editing.task.raw.time_taken?.slice(0, 5) || "",
+                followUp: "neither",
+              }
             : undefined
         }
       />
