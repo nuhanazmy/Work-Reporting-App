@@ -70,6 +70,7 @@ export default function DayTabPage() {
   const [editing, setEditing] = useState<{ listKey: ListKey; task: Task } | null>(null);
   const [addTargetList, setAddTargetList] = useState<ListKey>("todo");
   const [saving, setSaving] = useState(false);
+  const [previewTomorrow, setPreviewTomorrow] = useState(false);
 
   const [todoTasks, setTodoTasks] = useState<Task[]>([]);
   const [doneTasks, setDoneTasks] = useState<Task[]>([]);
@@ -98,7 +99,7 @@ export default function DayTabPage() {
       .from("daily_tasks")
       .select("id, task, status, is_follow_up, tppi, category, output, short_code, link, collaborators, time_taken, importance, urgency")
       .eq("user_id", user.id)
-      .eq("task_date", todayStr())
+      .eq("task_date", previewTomorrow ? tomorrowStr() : todayStr())
       .is("deleted_at", null);
 
     if (fetchError) {
@@ -125,7 +126,7 @@ export default function DayTabPage() {
     }
 
     setLoading(false);
-  }, [supabase, router]);
+  }, [supabase, router, previewTomorrow]);
 
   useEffect(() => {
     loadTasks();
@@ -302,9 +303,8 @@ export default function DayTabPage() {
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setTab("day")}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium ${
-              tab === "day" ? "bg-green-50 text-green-700" : "text-gray-500 border border-gray-300"
-            }`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium ${tab === "day" ? "bg-green-50 text-green-700" : "text-gray-500 border border-gray-300"
+              }`}
           >
             Day
           </button>
@@ -313,7 +313,13 @@ export default function DayTabPage() {
           </Link>
         </div>
 
-        <p className="text-sm text-gray-500 mb-6">{today}</p>
+        <p className="text-sm text-gray-500 mb-2">{today}</p>
+        <button
+          onClick={() => setPreviewTomorrow((p) => !p)}
+          className="text-xs text-blue-600 hover:underline mb-6"
+        >
+          {previewTomorrow ? "← Back to today" : "Preview tomorrow's view (testing only)"}
+        </button>
 
         {error && <p className="text-xs text-red-600 mb-4">{error}</p>}
 
@@ -385,16 +391,16 @@ export default function DayTabPage() {
         initialData={
           editing
             ? {
-                tppi: editing.task.raw.tppi || "",
-                category: editing.task.raw.category || "",
-                task: editing.task.title,
-                output: editing.task.raw.output || "",
-                code: editing.task.raw.short_code || "",
-                link: editing.task.raw.link || "",
-                collaborators: editing.task.raw.collaborators?.join(", ") || "",
-                timeTaken: editing.task.raw.time_taken?.slice(0, 5) || "",
-                followUp: "neither",
-              }
+              tppi: editing.task.raw.tppi || "",
+              category: editing.task.raw.category || "",
+              task: editing.task.title,
+              output: editing.task.raw.output || "",
+              code: editing.task.raw.short_code || "",
+              link: editing.task.raw.link || "",
+              collaborators: editing.task.raw.collaborators?.join(", ") || "",
+              timeTaken: editing.task.raw.time_taken?.slice(0, 5) || "",
+              followUp: "neither",
+            }
             : undefined
         }
       />
