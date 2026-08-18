@@ -8,7 +8,11 @@ import TaskModal, { TaskFormData } from "@/components/TaskModal";
 import { FiPlus, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { createClient } from "@/lib/supabase/client";
 
+// Status a task row can be in on the "daily_tasks" table
 type TaskStatus = "pending" | "completed" | "follow_up" | "draft";
+
+// Shape used in local state — flattens the DB row into a display-friendly
+// `title`/`status` plus a `raw` bag for everything else the modal needs
 type Task = {
   id: string;
   title: string;
@@ -25,8 +29,11 @@ type Task = {
     urgency: number | null;
   };
 };
+
+// Identifies which of the three lists a task belongs to / was opened from
 type ListKey = "todo" | "done" | "followup";
 
+// Small pill showing a task's status, color-coded per status value
 function StatusBadge({ status }: { status: TaskStatus }) {
   const styles: Record<TaskStatus, string> = {
     pending: "bg-gray-100 text-gray-600",
@@ -53,11 +60,14 @@ function quadrantToScores(followUp: TaskFormData["followUp"]): { importance: num
   }
 }
 
+// Formats today's date as YYYY-MM-DD (matches the task_date column format)
 function todayStr() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+// Formats tomorrow's date as YYYY-MM-DD — used both for follow-up inserts
+// and the "preview tomorrow" toggle
 function tomorrowStr() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -65,30 +75,47 @@ function tomorrowStr() {
 }
 
 export default function DayTabPage() {
+  // Which top-level tab is active (Day vs Week — Week is a separate route/link)
   const [tab, setTab] = useState<"day" | "week">("day");
+
+  // Modal open/close + which task (if any) is being edited
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<{ listKey: ListKey; task: Task } | null>(null);
+
+  // Which list an "Add" click came from (currently informational — payload
+  // itself doesn't branch on this, since status/is_follow_up decide the bucket)
   const [addTargetList, setAddTargetList] = useState<ListKey>("todo");
+
+  // Disables buttons / shows saving state during any write to Supabase
   const [saving, setSaving] = useState(false);
+
+  // Dev/testing toggle to view tomorrow's task_date instead of today's
   const [previewTomorrow, setPreviewTomorrow] = useState(false);
 
+  // The three lists rendered on the page, populated from loadTasks()
   const [todoTasks, setTodoTasks] = useState<Task[]>([]);
   const [doneTasks, setDoneTasks] = useState<Task[]>([]);
   const [followUps, setFollowUps] = useState<Task[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const router = useRouter();
+  // Memoized so the Supabase client instance is stable across re-renders
   const [supabase] = useState(() => createClient());
 
+  // Human-readable header date, e.g. "Mon 18 August 2026"
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short", day: "numeric", month: "long", year: "numeric",
   });
 
+  // Fetches all non-deleted tasks for the selected date (today or tomorrow
+  // preview) and splits them into the three lists by status/is_follow_up
   const loadTasks = useCallback(async () => {
     setLoading(true);
     setError("");
 
+    // Redirect to login if there's no authenticated user
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push("/login");
@@ -108,6 +135,7 @@ export default function DayTabPage() {
       return;
     }
 
+    // Maps a raw Supabase row into the local Task shape used by the UI
     const mapRow = (t: any): Task => ({
       id: t.id,
       title: t.task,
@@ -120,29 +148,37 @@ export default function DayTabPage() {
     });
 
     if (tasks) {
+      // To-do: not yet completed and not a carried-over follow-up
       setTodoTasks(tasks.filter((t) => t.status === "pending" && !t.is_follow_up).map(mapRow));
+      // Done: completed today
       setDoneTasks(tasks.filter((t) => t.status === "completed").map(mapRow));
+      // Follow-ups: rows carried over from a previous day's follow-up flag
       setFollowUps(tasks.filter((t) => t.is_follow_up).map(mapRow));
     }
 
     setLoading(false);
   }, [supabase, router, previewTomorrow]);
 
+  // Re-fetch whenever loadTasks changes identity (i.e. when previewTomorrow toggles)
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
 
+  // Opens the modal in "add" mode, targeting the given list
   function openAddModal(listKey: ListKey) {
     setEditing(null);
     setAddTargetList(listKey);
     setModalOpen(true);
   }
 
+  // Opens the modal in "edit" mode, pre-filled with the clicked task
   function openEditModal(listKey: ListKey, task: Task) {
     setEditing({ listKey, task });
     setModalOpen(true);
   }
 
+  // Handles both "create" and "update" saves from the modal, plus creating
+  // tomorrow's carried-over copy when the task is flagged as a follow-up
   async function handleSave(data: TaskFormData, saveMode: "active" | "draft") {
     setSaving(true);
     setError("");
@@ -157,6 +193,8 @@ export default function DayTabPage() {
     const { importance, urgency } = quadrantToScores(data.followUp);
     const status: TaskStatus = saveMode === "draft" ? "draft" : "pending";
 
+    // Normalizes "HH:MM" input into a Postgres-friendly "HH:MM:00" time string,
+    // or null if the field was left blank/incomplete
     const timeTaken = data.timeTaken.includes(":") && data.timeTaken !== ":"
       ? `${data.timeTaken}:00`
       : null;
@@ -178,6 +216,7 @@ export default function DayTabPage() {
     };
 
     if (editing) {
+      // Update path: overwrite the existing row
       const { error: updateError } = await supabase
         .from("daily_tasks")
         .update(payload)
@@ -189,6 +228,8 @@ export default function DayTabPage() {
         return;
       }
     } else {
+      // Create path: insert today's row first, then optionally insert a
+      // linked follow-up row for tomorrow
       const { data: inserted, error: insertError } = await supabase
         .from("daily_tasks")
         .insert({ ...payload, task_date: todayStr() })
@@ -201,7 +242,8 @@ export default function DayTabPage() {
         return;
       }
 
-      // If marked as follow-up, create tomorrow's carried-over task explicitly
+      // If marked as follow-up, create tomorrow's carried-over task explicitly.
+      // Drafts are excluded — only an actively saved task carries over.
       if (isMarkedFollowUp && saveMode === "active") {
         await supabase.from("daily_tasks").insert({
           user_id: user.id,
@@ -213,16 +255,17 @@ export default function DayTabPage() {
           importance,
           urgency,
           is_follow_up: true,
-          source_task_id: inserted?.id ?? null,
+          source_task_id: inserted?.id ?? null, // links back to the originating task
         });
       }
     }
 
     setSaving(false);
     setModalOpen(false);
-    await loadTasks();
+    await loadTasks(); // refresh lists to reflect the change
   }
 
+  // Soft-deletes the task currently open in the modal (sets deleted_at)
   async function handleDelete() {
     if (!editing) return;
     setSaving(true);
@@ -239,6 +282,7 @@ export default function DayTabPage() {
     await loadTasks();
   }
 
+  // Marks the task currently open in the modal as completed
   async function handleComplete() {
     if (!editing) return;
     setSaving(true);
@@ -255,6 +299,7 @@ export default function DayTabPage() {
     await loadTasks();
   }
 
+  // Soft-deletes a task directly from its card, without opening the modal
   async function handleQuickDelete(taskId: string) {
     const { error: deleteError } = await supabase
       .from("daily_tasks")
@@ -268,6 +313,8 @@ export default function DayTabPage() {
     await loadTasks();
   }
 
+  // Single row in any of the three lists — click to edit, hover to reveal
+  // quick edit/delete icons
   function TaskCard({ task, listKey }: { task: Task; listKey: ListKey }) {
     return (
       <div className="group relative text-sm text-gray-700 border border-gray-100 rounded-md px-3 py-2 bg-gray-50 hover:bg-gray-100 cursor-pointer">
@@ -275,6 +322,7 @@ export default function DayTabPage() {
           <span className="flex-1 truncate">{task.title}</span>
           <StatusBadge status={task.status} />
         </button>
+        {/* Hover-only action icons, positioned over the card's right edge */}
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-50">
           <button
             onClick={() => openEditModal(listKey, task)}
@@ -300,6 +348,7 @@ export default function DayTabPage() {
       <Sidebar />
 
       <main className="flex-1 p-6 pt-20 md:pt-6">
+        {/* Day / Week tab switcher — Week navigates to a separate route */}
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setTab("day")}
@@ -314,6 +363,8 @@ export default function DayTabPage() {
         </div>
 
         <p className="text-sm text-gray-500 mb-2">{today}</p>
+
+        {/* Dev-only toggle to preview tomorrow's task_date bucket */}
         <button
           onClick={() => setPreviewTomorrow((p) => !p)}
           className="text-xs text-blue-600 hover:underline mb-6"
@@ -327,6 +378,7 @@ export default function DayTabPage() {
           <p className="text-sm text-gray-400">Loading tasks…</p>
         ) : (
           <>
+            {/* To-do and Done lists, side by side on desktop, stacked on mobile */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div className="border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
@@ -354,7 +406,7 @@ export default function DayTabPage() {
                     onClick={() => openAddModal("done")}
                     className="flex items-center gap-1 bg-green-700 text-white text-xs px-3 py-1.5 rounded-md hover:bg-green-800"
                   >
-                    <FiPlus size={12} />
+                    <FiPlus size={12}  />
                     Add task
                   </button>
                 </div>
@@ -368,6 +420,7 @@ export default function DayTabPage() {
               </div>
             </div>
 
+            {/* Follow-ups carried over from a previous day */}
             <div className="border border-blue-200 rounded-lg p-4">
               <h2 className="text-sm font-semibold text-blue-700 mb-3">Follow up from yesterday</h2>
               <div className="space-y-2">
@@ -382,6 +435,8 @@ export default function DayTabPage() {
         )}
       </main>
 
+      {/* Shared add/edit modal — initialData is only passed when editing an
+          existing task; otherwise the modal opens blank */}
       <TaskModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -399,7 +454,7 @@ export default function DayTabPage() {
               link: editing.task.raw.link || "",
               collaborators: editing.task.raw.collaborators?.join(", ") || "",
               timeTaken: editing.task.raw.time_taken?.slice(0, 5) || "",
-              followUp: "neither",
+              followUp: "neither", // not stored/reconstructed from importance/urgency on edit
             }
             : undefined
         }
