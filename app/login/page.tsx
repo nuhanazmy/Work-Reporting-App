@@ -63,7 +63,7 @@ export default function LoginPage() {
           ← Back to home
         </Link>
 
-        <h1 className="text-lg font-semibold mb-6">Login</h1>
+        <h1 className="text-lg font-semibold mb-6 text-gray-900">Login</h1>
 
         <div className="mb-4">
           <label className="block text-xs text-gray-500 mb-1">Email or username</label>
