@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { FiUser, FiSun, FiMoon, FiMonitor, FiLogOut } from "react-icons/fi";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { FONT_SCALE_STEPS, getFontScale, setFontScale } from "@/lib/fontScale";
 
 type Theme = "light" | "dark" | "system";
 
@@ -15,6 +16,18 @@ export default function AccountPage() {
   const [error, setError] = useState("");
   const router = useRouter();
   const [supabase] = useState(() => createClient());
+
+  const [fontScale, setFontScaleState] = useState(1);
+
+  useEffect(() => {
+    setFontScaleState(getFontScale());
+  }, []);
+
+  function handleFontScaleChange(index: number) {
+    const scale = FONT_SCALE_STEPS[index];
+    setFontScale(scale);
+    setFontScaleState(scale);
+  }
 
   useEffect(() => {
     async function loadProfile() {
@@ -42,14 +55,14 @@ export default function AccountPage() {
     }
     loadProfile();
   }, []);
-// TODO(backend): this currently only updates local React state.
-// Needs to also:
-// - INSERT a new row into `daily_tasks` when adding (not editing)
-// - UPDATE the matching row when editing
-// - map `data.followUp` to the `importance`/`urgency` columns (1-5 scale) and set is_follow_up
-// - the Postgres trigger `handle_follow_up_task` (see schema.sql) auto-creates tomorrow's
-//   task server-side once is_follow_up is set true — so the client-side "copy into followUps"
-//   logic below can likely be REMOVED once this is wired up, to avoid duplicating that task
+  // TODO(backend): this currently only updates local React state.
+  // Needs to also:
+  // - INSERT a new row into `daily_tasks` when adding (not editing)
+  // - UPDATE the matching row when editing
+  // - map `data.followUp` to the `importance`/`urgency` columns (1-5 scale) and set is_follow_up
+  // - the Postgres trigger `handle_follow_up_task` (see schema.sql) auto-creates tomorrow's
+  //   task server-side once is_follow_up is set true — so the client-side "copy into followUps"
+  //   logic below can likely be REMOVED once this is wired up, to avoid duplicating that task
   async function handleSave() {
     setError("");
     const { data: { user } } = await supabase.auth.getUser();
@@ -161,8 +174,8 @@ export default function AccountPage() {
                 type="button"
                 onClick={() => setTheme(opt.value)}
                 className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-md text-xs border ${theme === opt.value
-                    ? "bg-green-50 border-green-600 text-green-700"
-                    : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                  ? "bg-green-50 border-green-600 text-green-700"
+                  : "border-gray-300 text-gray-600 hover:bg-gray-50"
                   }`}
               >
                 {opt.icon}
@@ -170,6 +183,25 @@ export default function AccountPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Font-scale */}
+        <div className="mb-6">
+          <label className="block text-xs text-gray-500 mb-2">Text size</label>
+          <div className="flex items-center gap-3 border border-gray-200 rounded-md px-4 py-3">
+            <span className="text-xs text-gray-400">A</span>
+            <input
+              type="range"
+              min={0}
+              max={FONT_SCALE_STEPS.length - 1}
+              step={1}
+              value={FONT_SCALE_STEPS.indexOf(fontScale)}
+              onChange={(e) => handleFontScaleChange(Number(e.target.value))}
+              className="flex-1 accent-green-700"
+            />
+            <span className="text-lg text-gray-400">A</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Applies across the whole app</p>
         </div>
 
         {/* Error message */}
